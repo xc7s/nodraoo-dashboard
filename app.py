@@ -311,18 +311,24 @@ class Handler(BaseHTTPRequestHandler):
 
 
 def bootstrap_git():
-    """首次部署自动接线：目录里没有 .git 时，自动关联仓库并同步。"""
+    """启动时自动接线并同步仓库：没有 .git 就初始化；已接线就同步到远端最新。"""
     repo_dir = os.path.dirname(os.path.abspath(__file__))
-    if os.path.exists(os.path.join(repo_dir, ".git")):
-        return
     import subprocess
+
+    def run(*args):
+        return subprocess.run(["git", *args], cwd=repo_dir, capture_output=True, text=True)
+
     remote = os.environ.get("GIT_REPO", "https://github.com/xc7s/nodraoo-dashboard.git")
     try:
-        subprocess.run(["git", "init", "-b", "main"], cwd=repo_dir, check=True, capture_output=True)
-        subprocess.run(["git", "remote", "add", "origin", remote], cwd=repo_dir, check=True, capture_output=True)
-        subprocess.run(["git", "fetch", "origin"], cwd=repo_dir, check=True, capture_output=True)
-        subprocess.run(["git", "reset", "--hard", "origin/main"], cwd=repo_dir, check=True, capture_output=True)
-        print("git repo wired:", remote)
+        if not os.path.exists(os.path.join(repo_dir, ".git")):
+            run("init", "-b", "main")
+            run("remote", "add", "origin", remote)
+        if run("rev-parse", "--verify", "origin/main").returncode != 0:
+            run("fetch", "origin")
+        if run("rev-parse", "--verify", "origin/main").returncode == 0:
+            run("reset", "--hard", "origin/main")
+            run("branch", "--set-upstream-to=origin/main", "main")
+            print("git synced to origin/main")
     except Exception as e:
         print("git bootstrap skipped:", e)
 
