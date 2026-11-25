@@ -3,11 +3,21 @@
   "lat": 22.5431,
   "lon": 114.0579,
   "rss_feeds": [
-    ["少数派", "https://sspai.com/feed"],
-    ["阮一峰周刊", "https://www.ruanyifeng.com/blog/atom.xml"]
+    [
+      "少数派",
+      "https://sspai.com/feed"
+    ],
+    [
+      "阮一峰周刊",
+      "https://www.ruanyifeng.com/blog/atom.xml"
+    ]
   ],
   "quick_links": [
-    ["百度", "https://www.baidu.com"]
+    [
+      "百度",
+      "https://www.baidu.com"
+    ]
   ],
-  "refresh_interval": 600
+  "refresh_interval": 600,
+  "password": ""
 }

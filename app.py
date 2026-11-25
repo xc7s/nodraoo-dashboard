@@ -10,9 +10,12 @@ import os
 import json
 import time
 import html
+import hashlib
+import hmac
 import threading
 import urllib.request
 import urllib.error
+import urllib.parse
 import xml.etree.ElementTree as ET
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
@@ -40,6 +43,10 @@ QUICK_LINKS = [
 # 不配置就显示"未启用"，不影响其他功能。
 SIMULAR_KEY = os.environ.get("SIMULAR_KEY", "")
 
+# 访问密码（可选）：在盒子上的 config.json 里加 "password": "你的密码" 即启用；
+# 不设置则任何人拿到地址都能看。
+PANEL_PASSWORD = os.environ.get("PANEL_PASSWORD", "")
+
 # 数据刷新间隔（秒）
 REFRESH_INTERVAL = 600
 
@@ -63,6 +70,7 @@ try:
     RSS_FEEDS = [tuple(x) for x in _ov.get("rss_feeds", RSS_FEEDS)]
     QUICK_LINKS = [tuple(x) for x in _ov.get("quick_links", QUICK_LINKS)]
     REFRESH_INTERVAL = int(_ov.get("refresh_interval", REFRESH_INTERVAL))
+    PANEL_PASSWORD = _ov.get("password", PANEL_PASSWORD)
 except Exception:
     pass
 
@@ -297,14 +305,82 @@ def render():
                        simular_html=simular_html, links_html=links_html, rss_html="".join(blocks))
 
 
+AUTH_COOKIE = "dash_auth"
+
+LOGIN_PAGE = """<!DOCTYPE html>
+<html lang="zh"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1"><title>登录 · 我的面板</title>
+<style>
+  body {{ margin:0; min-height:100vh; display:flex; align-items:center; justify-content:center;
+         background:#12121c; color:#e8e8f0; font-family:-apple-system,"PingFang SC",sans-serif; }}
+  .box {{ background:#1c1c2a; border-radius:16px; padding:32px 28px; width:min(320px, 88vw); }}
+  h1 {{ font-size:20px; margin:0 0 18px; text-align:center; }}
+  input {{ width:100%; padding:12px; border-radius:10px; border:1px solid #2a2a3c;
+           background:#12121c; color:#e8e8f0; font-size:15px; box-sizing:border-box; }}
+  button {{ width:100%; padding:12px; margin-top:12px; border:none; border-radius:10px;
+            background:#7c5cff; color:#fff; font-size:15px; }}
+  .err {{ color:#ff9a9a; font-size:13px; text-align:center; min-height:18px; margin-top:10px; }}
+</style></head><body>
+<div class="box"><h1>🏠 我的面板</h1>
+<form method="POST" action="/login">
+<input type="password" name="password" placeholder="访问密码" autofocus>
+<button type="submit">进入</button>
+<div class="err">{err}</div>
+</form></div></body></html>"""
+
+
+def login_page(err=""):
+    return LOGIN_PAGE.format(err=html.escape(err))
+
+
+def auth_token():
+    return hmac.new(b"nodaroo-dashboard", PANEL_PASSWORD.encode(), hashlib.sha256).hexdigest()
+
+
+def is_authed(headers):
+    if not PANEL_PASSWORD:
+        return True
+    for part in headers.get("Cookie", "").split(";"):
+        k, _, v = part.strip().partition("=")
+        if k == AUTH_COOKIE and v == auth_token():
+            return True
+    return False
+
+
 class Handler(BaseHTTPRequestHandler):
-    def do_GET(self):
-        body = render().encode("utf-8")
-        self.send_response(200)
+    def _send(self, body, status=200, headers=None):
+        data = body.encode("utf-8")
+        self.send_response(status)
         self.send_header("Content-Type", "text/html; charset=utf-8")
-        self.send_header("Content-Length", str(len(body)))
+        self.send_header("Content-Length", str(len(data)))
+        for k, v in (headers or []):
+            self.send_header(k, v)
         self.end_headers()
-        self.wfile.write(body)
+        self.wfile.write(data)
+
+    def do_GET(self):
+        if self.path == "/logout":
+            self._send("", status=302, headers=[("Set-Cookie", f"{AUTH_COOKIE}=; Max-Age=0; Path=/"), ("Location", "/")])
+            return
+        if not is_authed(self.headers):
+            self._send(login_page())
+            return
+        self._send(render())
+
+    def do_POST(self):
+        if self.path != "/login":
+            self._send("Not found", status=404)
+            return
+        length = int(self.headers.get("Content-Length", 0))
+        form = self.rfile.read(length).decode("utf-8", "ignore")
+        pw = urllib.parse.parse_qs(form).get("password", [""])[0]
+        if PANEL_PASSWORD and pw == PANEL_PASSWORD:
+            self._send("", status=302, headers=[
+                ("Set-Cookie", f"{AUTH_COOKIE}={auth_token()}; Path=/; Max-Age=2592000; HttpOnly"),
+                ("Location", "/"),
+            ])
+        else:
+            self._send(login_page("密码不对，再试试"))
 
     def log_message(self, *a):
         pass
