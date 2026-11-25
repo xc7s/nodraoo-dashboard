@@ -310,7 +310,25 @@ class Handler(BaseHTTPRequestHandler):
         pass
 
 
+def bootstrap_git():
+    """首次部署自动接线：目录里没有 .git 时，自动关联仓库并同步。"""
+    repo_dir = os.path.dirname(os.path.abspath(__file__))
+    if os.path.exists(os.path.join(repo_dir, ".git")):
+        return
+    import subprocess
+    remote = os.environ.get("GIT_REPO", "https://github.com/xc7s/nodraoo-dashboard.git")
+    try:
+        subprocess.run(["git", "init", "-b", "main"], cwd=repo_dir, check=True, capture_output=True)
+        subprocess.run(["git", "remote", "add", "origin", remote], cwd=repo_dir, check=True, capture_output=True)
+        subprocess.run(["git", "fetch", "origin"], cwd=repo_dir, check=True, capture_output=True)
+        subprocess.run(["git", "reset", "--hard", "origin/main"], cwd=repo_dir, check=True, capture_output=True)
+        print("git repo wired:", remote)
+    except Exception as e:
+        print("git bootstrap skipped:", e)
+
+
 if __name__ == "__main__":
+    bootstrap_git()
     port = int(os.environ.get("SERVER_PORT", "8000"))
     threading.Thread(target=refresher, daemon=True).start()
     refresh_once()  # 启动先抓一轮
