@@ -18,6 +18,5 @@
       "https://www.baidu.com"
     ]
   ],
-  "refresh_interval": 600,
-  "password": ""
+  "refresh_interval": 600
 }
